@@ -24,7 +24,7 @@ def transformar_valor(valor, tipo, longitud):
             valor = f"{valor:017.2f}"  
             valor = valor.replace(".", "")  
         except ValueError:
-            logging.warning(f"⚠️ Valor inválido para {tipo}: {valor}")
+            logging.warning(f"Valor inválido para {tipo}: {valor}")
             valor = "0" * 18  
     
     elif tipo in ["FECINT", "DATETIME"]:
@@ -32,7 +32,7 @@ def transformar_valor(valor, tipo, longitud):
             fecha = datetime.strptime(valor, "%Y-%m-%d")
             valor = fecha.strftime("%Y%m%d")
         except ValueError:
-            logging.warning(f"⚠️ Formato de fecha inválido: {valor}")
+            logging.warning(f"Formato de fecha inválido: {valor}")
     
     if tipo == "NUMERICO":
         valor = valor.ljust(longitud, '0')[:longitud]  
