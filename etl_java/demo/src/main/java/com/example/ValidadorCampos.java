@@ -32,7 +32,7 @@ public class ValidadorCampos {
 
             Sheet sheet = workbook.getSheetAt(0);
             for (Row row : sheet) {
-                if (row.getRowNum() == 0) continue; // Saltar encabezados
+                if (row.getRowNum() == 0) continue; // Saltar titulos
 
                 String nombreCampo = obtenerValorCelda(row.getCell(0)).toUpperCase();
                 String campoDestino = obtenerValorCelda(row.getCell(1)).toUpperCase();
@@ -88,7 +88,7 @@ public class ValidadorCampos {
     }
 
     private String transformarValor(String valor, String tipo, int longitud) {
-        if (longitud <= 0) return valor; // Si la longitud no está definida, no modificar
+        if (longitud <= 0) return valor; 
 
         // Formato de fechas
         if (tipo.equals("FECINT") || tipo.equals("DATETIME")) {
@@ -99,7 +99,7 @@ public class ValidadorCampos {
                 return outputFormat.format(fecha);
             } catch (Exception e) {
                 System.out.println("Error en fecha: " + valor);
-                return valor; // Si hay un error, devolver sin cambios
+                return valor; 
             }
         }
 
@@ -112,8 +112,7 @@ public class ValidadorCampos {
                 return String.format("%" + longitud + "s", valor).replace(' ', '0');
             }
         }
-
-        // Texto alineado a la derecha con espacios
+        
         if (tipo.equals("ALFANUMERICO")) {
             return String.format("%-" + longitud + "s", valor);
         }
@@ -129,16 +128,14 @@ public class ValidadorCampos {
             }
 
             List<String> columnas = new ArrayList<>(listaFieldsTransformados.get(0).keySet());
-
-            // Escribir encabezado
+            
             writer.write(String.join("\t", columnas));
             writer.newLine();
-
-            // Escribir los datos transformados
+            s
             for (Map<String, String> fila : listaFieldsTransformados) {
                 List<String> valores = new ArrayList<>();
                 for (String col : columnas) {
-                    valores.add(fila.getOrDefault(col, "")); // Si no hay valor, poner vacío
+                    valores.add(fila.getOrDefault(col, "")); 
                 }
                 writer.write(String.join("\t", valores));
                 writer.newLine();
