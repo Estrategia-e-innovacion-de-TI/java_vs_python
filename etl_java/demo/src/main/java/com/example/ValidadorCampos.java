@@ -1,15 +1,27 @@
 package com.example;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.poi.ss.usermodel.*;
-import org.apache.poi.xssf.usermodel.XSSFWorkbook;
-
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
+
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class ValidadorCampos {
     private final String rutaExcel;
@@ -27,18 +39,31 @@ public class ValidadorCampos {
     }
 
     private void cargarReglasDesdeExcel() {
+        // Cargar reglas desde archivo Excel
         try (FileInputStream fis = new FileInputStream(rutaExcel);
+
+             // Crear un objeto Workbook para leer el archivo Excel
              Workbook workbook = new XSSFWorkbook(fis)) {
 
+            // Obtener la primera hoja del archivo
             Sheet sheet = workbook.getSheetAt(0);
+
+            // Iterar sobre las filas de la hoja
             for (Row row : sheet) {
-                if (row.getRowNum() == 0) continue; // Saltar titulos
+                // Saltar la primera fila (títulos)
+                if (row.getRowNum() == 0) continue;
 
-                String nombreCampo = obtenerValorCelda(row.getCell(0)).toUpperCase();
-                String campoDestino = obtenerValorCelda(row.getCell(1)).toUpperCase();
-                String tipo = obtenerValorCelda(row.getCell(3)).toUpperCase();
-                int longitud = row.getCell(4) != null ? (int) row.getCell(4).getNumericCellValue() : 0;
+                // Obtener valores de las celdas
+                String nombreCampo = obtenerValorCelda(row.getCell(0)).toUpperCase().trim();
+                String campoDestino = obtenerValorCelda(row.getCell(1)).toUpperCase().trim();
+                String tipo = obtenerValorCelda(row.getCell(3)).toUpperCase().trim();
+                String longitudSrt = obtenerValorCelda(row.getCell(4)).trim();
 
+                //convertir longitud a entero
+                if (longitudSrt.isEmpty()) {
+                    longitudSrt = "0";
+                }
+                int longitud = Integer.parseInt(longitudSrt);
                 reglas.put(nombreCampo, new ReglaTransformacion(campoDestino, tipo, longitud));
             }
 
@@ -49,123 +74,191 @@ public class ValidadorCampos {
         }
     }
 
+
     private void leerJson() {
-        try {
-            String contenidoJson = new String(Files.readAllBytes(Paths.get(rutaJson)));
+        try (BufferedReader reader = Files.newBufferedReader(Paths.get(rutaJson), StandardCharsets.UTF_8)) {
+            // Crear un objeto ObjectMapper para leer el JSON
             ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode rootNode = objectMapper.readTree(contenidoJson);
+
+            // Leer el JSON y obtener el nodo raíz
+            JsonNode rootNode = objectMapper.readTree(reader);
+
+            // Obtener la lista de transacciones
             JsonNode transactions = rootNode.path("body").path("transactions");
+            System.out.println("Transacciones encontradas: " + transactions.size());
 
+            // Iterar sobre las transacciones
             for (JsonNode transaction : transactions) {
-                if (transaction.has("fields")) {
-                    Map<String, String> nuevoFields = new LinkedHashMap<>();
-                    JsonNode fields = transaction.get("fields");
-
-                    for (Iterator<String> it = fields.fieldNames(); it.hasNext(); ) {
-                        String campoOriginal = it.next();
-                        String valor = fields.get(campoOriginal).asText().trim();
-
-                        ReglaTransformacion regla = reglas.get(campoOriginal);
-                        if (regla != null) {
-                            String codigo = regla.getCodigo();
-                            String tipo = regla.getTipo();
-                            int longitud = regla.getLongitud();
-
-                            // Transformar valor según reglas
-                            String valorTransformado = transformarValor(valor, tipo, longitud);
-                            nuevoFields.put(codigo, valorTransformado);
-                        } else {
-                            nuevoFields.put(campoOriginal, valor);
-                        }
-                    }
-                    listaFieldsTransformados.add(nuevoFields);
+                // Verificar si la transacción tiene campos
+                if (!transaction.has("fields")) {
+                    continue; // Saltar esta transacción si no tiene campos
                 }
+
+                // Crear un nuevo mapa para los campos transformados
+                Map<String, String> nuevoFields = new LinkedHashMap<>();
+
+                // Obtener los campos de la transacción
+                JsonNode fields = transaction.get("fields");
+
+                // Iterar sobre los campos
+                fields.fieldNames().forEachRemaining(campoOriginal -> {
+                    // Obtener el valor del campo
+                    String valor = fields.get(campoOriginal).asText().toUpperCase().trim();
+
+                    // Verificar si existe una regla de transformación para el campo
+                    ReglaTransformacion regla = reglas.get(campoOriginal);
+
+                    if (regla != null) {
+                        String codigo = regla.getCodigo();
+                        String tipo = regla.getTipo();
+                        int longitud = regla.getLongitud();
+
+                        // Transformar valor según reglas
+                        String valorTransformado = transformarValor(valor, tipo, longitud);
+                        nuevoFields.put(codigo, valorTransformado);
+                    } else {
+                        nuevoFields.put(campoOriginal, valor);
+                    }
+                });
+
+                listaFieldsTransformados.add(nuevoFields);
             }
 
-        } catch (Exception e) {
-            e.printStackTrace();
+        } catch (IOException e) {
+            System.out.println("Error al leer el archivo JSON: " + e.getMessage());
         }
     }
+
 
     private String transformarValor(String valor, String tipo, int longitud) {
         if (longitud <= 0) return valor; 
 
         // Formato de fechas
-        if (tipo.equals("FECINT") || tipo.equals("DATETIME")) {
-            try {
-                SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd");
-                SimpleDateFormat outputFormat = new SimpleDateFormat("yyyyMMdd");
-                Date fecha = inputFormat.parse(valor);
-                return outputFormat.format(fecha);
-            } catch (Exception e) {
-                System.out.println("Error en fecha: " + valor);
-                return valor; 
+        switch (tipo) {
+            case "FECINT", "DATETIME" -> {
+                try {
+                    SimpleDateFormat inputFormat = new SimpleDateFormat("yyyy-MM-dd");
+                    SimpleDateFormat outputFormat = new SimpleDateFormat("yyyyMMdd");
+                    Date fecha = inputFormat.parse(valor);
+                    return outputFormat.format(fecha);
+                } catch (Exception e) {
+                    System.out.println("Error en fecha: " + valor);
+                    return valor;
+                }
             }
-        }
 
-        // Números con ceros a la izquierda
-        if (tipo.equals("NUMERICO")) {
-            try {
-                long numero = Long.parseLong(valor.replaceAll("[^0-9]", "0"));
-                return String.format("%0" + longitud + "d", numero);
-            } catch (NumberFormatException e) {
-                return String.format("%" + longitud + "s", valor).replace(' ', '0');
+
+            // si el tipo es NUMERICO, se agregan ceros a la izquierda
+            case "NUMERICO" -> {
+
+                // Si el valor es null, lo convertimos a string vacío para evitar NullPointerException
+                if (valor == null) {
+                    valor = "";
+                }
+
+                // Verificamos si la longitud del valor es menor que la longitud deseada
+                if (valor.length() < longitud) {
+                    // Calculamos cuántos ceros necesitamos agregar
+                    int cerosNecesarios = longitud - valor.length();
+
+                    // Agregamos los ceros necesarios a la izquierda
+                    // Agregamos el valor original
+
+                    // Retornamos el string con los ceros a la izquierda
+                    return "0".repeat(cerosNecesarios) + valor;
+                }
+
+                // Si el valor ya tiene la longitud necesaria o es mayor, lo retornamos sin cambios
+                return valor;
+
+                // Si el valor ya tiene la longitud necesaria o es mayor, lo retornamos sin cambios
             }
-        }
-        
-        if (tipo.equals("ALFANUMERICO")) {
-            return String.format("%-" + longitud + "s", valor);
+            case "ALFANUMERICO" -> {
+                return String.format("%-" + longitud + "s", valor);
+            }
         }
 
         return valor;
     }
 
-    public void generarArchivoTxt() {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(rutaSalida))) {
-            if (listaFieldsTransformados.isEmpty()) {
-                System.out.println("No hay datos para exportar.");
-                return;
-            }
 
+
+    public void generarArchivoTxt(){
+
+        if(listaFieldsTransformados.isEmpty()){
+            System.out.println("No hay datos para exportar.");
+            return;
+        }
+
+        File directorioSalida = new File(rutaSalida).getParentFile();
+        if (directorioSalida != null && !directorioSalida.exists()) {
+            directorioSalida.mkdirs();
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(rutaSalida, StandardCharsets.UTF_8))) {
+            // Obtener columnas del primer registro
             List<String> columnas = new ArrayList<>(listaFieldsTransformados.get(0).keySet());
-            
+
+            // Escribir encabezados
             writer.write(String.join("\t", columnas));
             writer.newLine();
-            s
-            for (Map<String, String> fila : listaFieldsTransformados) {
-                List<String> valores = new ArrayList<>();
-                for (String col : columnas) {
-                    valores.add(fila.getOrDefault(col, "")); 
-                }
-                writer.write(String.join("\t", valores));
-                writer.newLine();
-            }
 
-            System.out.println("Archivo generado en: " + rutaSalida);
+            // Escribir datos usando streams para mejor rendimiento
+            listaFieldsTransformados.forEach(fila -> {
+                try {
+                    // Mapear cada columna a su valor correspondiente, usando "" si no existe
+                    String lineaValores = columnas.stream()
+                            .map(col -> fila.getOrDefault(col, ""))
+                            .collect(Collectors.joining("\t"));
+
+                    writer.write(lineaValores);
+                    writer.newLine();
+                } catch (IOException e) {
+                    // Capturar y relanzar como RuntimeException para usar en expresión lambda
+                    throw new UncheckedIOException("Error al escribir fila en archivo", e);
+                }
+            });
+
+            System.out.println("Archivo generado exitosamente en: " + rutaSalida);
+
+        } catch (UncheckedIOException e) {
+            System.err.println("Error al procesar datos: " + e.getMessage());
 
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Error al escribir archivo: " + e.getMessage());
         }
+
     }
 
     private String obtenerValorCelda(Cell cell) {
         if (cell == null) return "";
         return switch (cell.getCellType()) {
-            case STRING -> cell.getStringCellValue();
-            case NUMERIC -> String.valueOf((long) cell.getNumericCellValue());
+            // retornat sin espacios
+            case STRING -> cell.getStringCellValue().toUpperCase().trim();
+            case NUMERIC -> String.valueOf((long) cell.getNumericCellValue()).toUpperCase().trim();
             default -> "";
         };
     }
 
     public static void main(String[] args) {
-        String rutaExcel = "C:/Users/Juan Pablo/Desktop/python/poc-java-python/java_vs_python/etl_java/demo/data/Reglas OPTIMA.xlsx";
-        String rutaJson = "C:/Users/Juan Pablo/Desktop/python/poc-java-python/java_vs_python/etl_java/demo/data/json_a_homologar.json";
-        String rutaSalida = "C:/Users/Juan Pablo/Desktop/python/poc-java-python/java_vs_python/etl_java/demo/outputs_" + new Random().nextInt(10000) + ".txt";
+
+        String rutaExcel = "demo/data/Reglas OPTIMA.xlsx";
+        String rutaJson = "demo/data/json_a_homologar.json";
+        String rutaSalida = "demo/outputs_" + new Random().nextInt(10000) + ".txt";
+
+        // iniciar calculo de tiempo
+        long startTime = System.currentTimeMillis();
 
         ValidadorCampos validador = new ValidadorCampos(rutaExcel, rutaJson, rutaSalida);
         validador.generarArchivoTxt();
+
+        // finalizar calculo de tiempo
+        long endTime = System.currentTimeMillis();
+        long tiempoTotal = endTime - startTime;
+        System.out.println("Tiempo total de ejecución: " + tiempoTotal + " ms");
     }
 }
+
 
 class ReglaTransformacion {
     private final String codigo;
