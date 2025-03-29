@@ -70,12 +70,16 @@ public class ValidadorCampos {
             System.out.println("Reglas cargadas: " + reglas.size());
 
         } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("Error al cargar la reglas: " + e.getMessage());
         }
     }
 
 
     private void leerJson() {
+        long startTotalTime = System.nanoTime(); // Total start time
+        int transactionCount = 0;
+        long totalProcessingTime = 0;
+
         try (BufferedReader reader = Files.newBufferedReader(Paths.get(rutaJson), StandardCharsets.UTF_8)) {
             // Crear un objeto ObjectMapper para leer el JSON
             ObjectMapper objectMapper = new ObjectMapper();
@@ -85,10 +89,13 @@ public class ValidadorCampos {
 
             // Obtener la lista de transacciones
             JsonNode transactions = rootNode.path("body").path("transactions");
+            System.out.println("==================================================");
             System.out.println("Transacciones encontradas: " + transactions.size());
 
             // Iterar sobre las transacciones
             for (JsonNode transaction : transactions) {
+                long startTransactionTime = System.nanoTime(); // Start time for this transaction
+
                 // Verificar si la transacción tiene campos
                 if (!transaction.has("fields")) {
                     continue; // Saltar esta transacción si no tiene campos
@@ -122,13 +129,32 @@ public class ValidadorCampos {
                 });
 
                 listaFieldsTransformados.add(nuevoFields);
+
+                // Calcular el tiempo de procesamiento de la transacción
+                long endTransactionTime = System.nanoTime();
+                long transactionProcessingTime = endTransactionTime - startTransactionTime;
+                totalProcessingTime += transactionProcessingTime;
+                transactionCount++;
+            }
+
+
+            long endTotalTime = System.nanoTime();
+            long totalExecutionTime = endTotalTime - startTotalTime;
+
+            System.out.println("==================================================");
+
+            if (transactionCount > 0) {
+                double averageTransactionTime = (double) totalProcessingTime / transactionCount / 1_000.0; // Microseconds
+                double totalExecutionTimeMs = totalExecutionTime / 1_000_000.0;
+
+                System.out.printf("Tiempo promedio por transacción: %.2f µs%n", averageTransactionTime);
+                System.out.printf("Total tiempo de Ejecución de los registros: %.2f ms%n", totalExecutionTimeMs);
             }
 
         } catch (IOException e) {
             System.out.println("Error al leer el archivo JSON: " + e.getMessage());
         }
     }
-
 
     private String transformarValor(String valor, String tipo, int longitud) {
         if (longitud <= 0) return valor; 
@@ -243,16 +269,17 @@ public class ValidadorCampos {
     public static void main(String[] args) {
 
         String rutaExcel = "demo/data/Reglas OPTIMA.xlsx";
-        String rutaJson = "demo/data/json_a_homologar.json";
+        //String rutaJson = "demo/data/json_a_homologar.json";
+        String rutaJson = "demo/data/test_data_500000.json";
         String rutaSalida = "demo/outputs_" + new Random().nextInt(10000) + ".txt";
 
-        // iniciar calculo de tiempo
+        // iniciar cálculo de tiempo
         long startTime = System.currentTimeMillis();
 
         ValidadorCampos validador = new ValidadorCampos(rutaExcel, rutaJson, rutaSalida);
         validador.generarArchivoTxt();
 
-        // finalizar calculo de tiempo
+        // finalizar cálculo de tiempo
         long endTime = System.currentTimeMillis();
         long tiempoTotal = endTime - startTime;
         System.out.println("Tiempo total de ejecución: " + tiempoTotal + " ms");
